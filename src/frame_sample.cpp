@@ -13,18 +13,23 @@ class Node
 
         Node()
         {
-            pub = n.advertise<apriltag_ros::AprilTagDetectionArray>("publish13",1000);
+            pub = n.advertise<apriltag_ros::AprilTagDetectionArray>("sampled_detections",1000);
             sub = n.subscribe("tag_detections", 1000, &Node::sampleCallback,this);
             wait = false;
         } 
 
         void sampleCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr& msg)
         {
-            ROS_INFO("I heard %f", msg->translation[0]); /////
             message = msg;
+            ROS_INFO("I heard %f", msg->translation[0]); /////
+            for(int i=0; i<msg->detections.size();i++)////
+            {/////
+                ROS_INFO("  %i",msg->detections[i].id[0]);////
+            }/////
+            
             if (wait == false)
             {
-                timer = n.createTimer(ros::Duration(0.5),&Node::publishMsg, this);
+                timer = n.createTimer(ros::Duration(0.2),&Node::publishMsg, this);
                 wait = true; 
             }
         }

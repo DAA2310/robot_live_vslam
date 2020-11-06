@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0.2)
 project(robot_live_vslam)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -12,7 +12,11 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   apriltag_ros 
+  tf_conversions
 )
+
+find_package(Boost REQUIRED COMPONENTS system)
+find_package(OpenCV REQUIRED PATHS "~/Documents/OpenCV")
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -106,7 +110,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES robot_live_vslam
-  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros
+  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros tf_conversions
 #  DEPENDS system_lib 
 )
 
@@ -119,6 +123,9 @@ catkin_package(
 include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
+  ${Eigen_INCLUDE_DIRS}
+  ${boost_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -135,6 +142,7 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(frame_sample_node src/frame_sample.cpp)
+add_executable(vslam_node src/vslam.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -147,8 +155,14 @@ add_executable(frame_sample_node src/frame_sample.cpp)
 #add_dependencies(frame_sample_node frame_sample_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
- target_link_libraries(frame_sample_node
+target_link_libraries(frame_sample_node
    ${catkin_LIBRARIES}
+)
+
+target_link_libraries(vslam_node
+   ${catkin_LIBRARIES}
+   ${OpenCV_LIBRARIES}
+   ${boost_LIBRARIES}
 )
 
 #############
