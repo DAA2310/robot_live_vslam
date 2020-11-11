@@ -13,6 +13,8 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   apriltag_ros 
   tf_conversions
+  camera_calibration_parsers	
+  rviz_simulator
 )
 
 find_package(Boost REQUIRED COMPONENTS system)
@@ -108,9 +110,9 @@ find_package(OpenCV REQUIRED PATHS "~/Documents/OpenCV")
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES robot_live_vslam
-  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros tf_conversions
+# INCLUDE_DIRS include
+# LIBRARIES robot_live_vslam
+  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros tf_conversions rviz_simulator
 #  DEPENDS system_lib 
 )
 
@@ -121,12 +123,13 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+ # include 
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${Eigen_INCLUDE_DIRS}
   ${boost_INCLUDE_DIRS}
 )
+
 
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
