@@ -55,6 +55,9 @@
   <build_depend>apriltag_ros</build_depend>
   <build_depend>tf_conversions</build_depend> 
   <build_depend>rviz_simulator</build_depend> 
+  <build_depend>yaml-cpp</build_depend>
+  
+
   <build_export_depend>roscpp</build_export_depend>
   <build_export_depend>rospy</build_export_depend>
   <build_export_depend>std_msgs</build_export_depend>
@@ -67,7 +70,8 @@
   <exec_depend>apriltag_ros</exec_depend>
   <exec_depend>tf_conversions</exec_depend>
   <exec_depend>rviz_simulator</exec_depend>
-
+  <exec_depend>yaml-cpp</exec_depend>
+  
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>

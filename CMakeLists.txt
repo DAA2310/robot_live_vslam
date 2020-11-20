@@ -12,11 +12,11 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   apriltag_ros 
-  tf_conversions
-  camera_calibration_parsers	
+  tf_conversions	
   rviz_simulator
 )
 
+find_package(Ceres REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(OpenCV REQUIRED PATHS "~/Documents/OpenCV")
 
@@ -112,7 +112,7 @@ find_package(OpenCV REQUIRED PATHS "~/Documents/OpenCV")
 catkin_package(
 # INCLUDE_DIRS include
 # LIBRARIES robot_live_vslam
-  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros tf_conversions rviz_simulator
+  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros tf_conversions rviz_simulator 
 #  DEPENDS system_lib 
 )
 
@@ -128,9 +128,10 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
   ${Eigen_INCLUDE_DIRS}
   ${boost_INCLUDE_DIRS}
+  ${CERES_INCLUDE_DIRS}
 )
 
-
+FIND_PACKAGE(yaml-cpp REQUIRED)
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
 #   src/${PROJECT_NAME}/robot_live_vslam.cpp
@@ -166,6 +167,8 @@ target_link_libraries(vslam_node
    ${catkin_LIBRARIES}
    ${OpenCV_LIBRARIES}
    ${boost_LIBRARIES}
+   ${CERES_LIBRARIES}
+   yaml-cpp
 )
 
 #############
@@ -197,11 +200,11 @@ install(TARGETS
  )
 
 ## Mark cpp header files for installation
-# install(DIRECTORY include/${PROJECT_NAME}/
-#   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+ install(DIRECTORY include/${PROJECT_NAME}/
+   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
 #   FILES_MATCHING PATTERN "*.h"
 #   PATTERN ".svn" EXCLUDE
-# )
+ )
 
 ## Mark other files for installation (e.g. launch and bag files, etc.)
 # install(FILES
