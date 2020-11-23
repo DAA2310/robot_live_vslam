@@ -28,38 +28,21 @@ class Node
         std::vector<int> known_in_frame;
         std::vector<int> opt_in_frame; 
         int opt_frames;
-        bool optimizing; // if optimization requires more time than callback loops
         std::string package_path;
+        ros::Publisher pub;
+        std::map<int, Target> opt_targets;
 
         Node()
         {
-            std::string package_path = ros::package::getPath("robot_live_vslam");
+            package_path = ros::package::getPath("robot_live_vslam");
+            //pub = n.advertise<>("",1000);
             sub = n.subscribe("sampled_detections", 1000, &Node::camViewCallback,this);
             intrinsicLoad();
             //std::cout<< camMatrix << std::endl;
             //std::cout<< distCoeffs << std::endl;
-
+            opt_frames = 0;
             first_view = true;
             
-        }
-
-        void intrinsicLoad()
-        {
-          camMatrix = cv::Mat(3,3,CV_64F,cv::Scalar(0));
-          std::vector<double> intrinsic;
-          if((n.hasParam("/camera_matrix/data"))&&(n.hasParam("/distortion_coefficients/data")))
-          {
-            n.getParam("/camera_matrix/data", intrinsic);
-            memcpy(camMatrix.data,intrinsic.data(),intrinsic.size()*sizeof(double));
-            n.getParam("/distortion_coefficients/data", intrinsic);
-            distCoeffs={intrinsic[0],intrinsic[1],intrinsic[2],intrinsic[3],intrinsic[4]};
-            ROS_INFO("Camera intrinsic parameters loaded");          
-          }
-          else 
-          {
-            ROS_ERROR("Camera intrinsics not loaded to parameter server!");
-            ros::shutdown();
-          }
         }
 
         void camViewCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr& msg)
@@ -136,8 +119,8 @@ class Node
                 
                 if ((known_in_frame.size() > 1) && (opt_in_frame.size() > 0)) //at least 2 known tags, 1 pending optimization
                 {
-                    cached_pictures.push_back(msg2Picture(msg));
-                    opt_frames ++; //cache picture
+                    cached_pictures.push_back(msg2Picture(msg)); //cache picture
+                    //opt_frames ++; //cache picture
                     for (int i = 0; i < opt_in_frame.size(); i++)
                     {
                         if (opt_in_frame[i] != known_tags[0].id) //don't account for world tag optimization
@@ -156,21 +139,91 @@ class Node
                         }                    
                     }
                 }
-                
-                if (opt_frames > 50) // check for optimization criteria 
-                {
-                    camera_calibration::CameraCalibrationOptimizer tag_optimizer(package_path, 1);
-                    tag_optimizer.optimize();
-                    tag_optimizer.printResultsToConsole();
-                    opt_frames = 0; 
-                    //optimization initialization 
-                    // run optimization 
-                    //process data, update and delete
-                }
 
+                std::cout<<"Optimizer cache: "<< cached_pictures.size() << std::endl;////
+                std::cout<<"Current cache: "<< opt_frames << std::endl;////
+                if (known_tags.size()>1)
+                {
+                    for(int j=1; j<known_tags.size();j++){
+                        std::cout<<"tag "<<known_tags[j].id<<": ";
+                        for (int i=0; i<known_tags[j].pair_count.size();i++){
+                            std::cout<< known_tags[j].pair_count[i] << " ";
+                        }
+                        std::cout<<std::endl;
+                    }
+                    std::cout<< "TO BE OPT"<<std::endl;
+                    for (int k = 0;k<toBeOpt.size();k++){
+                        std::cout<<" "<<toBeOpt[k];
+                    }
+                    std::cout<<std::endl;
+                }/////
+                
+                if (opt_frames > 99) // check for optimization criteria - dependent on sample rate 
+                {
+                    tagOptimize();
+                    pollOptResults(); //check pair count criteria and adjust
+                    cached_pictures.clear();
+                    opt_frames = 0; //reset cache 
+                }
             }
+
             known_in_frame.clear();
             opt_in_frame.clear();
+
+            //publish data
+        }
+
+        void tagOptimize()
+        {
+            //initialize and run optimization
+            camera_calibration::CameraCalibrationOptimizer tag_optimizer(package_path, 1);
+            tag_optimizer.optimize();
+            opt_targets = tag_optimizer.loadTargetMap();
+            tag_optimizer.printResultsToConsole(); ////
+        }
+
+        void pollOptResults()
+        {
+            for (int i = 0; i < toBeOpt.size(); i++)
+            {
+                auto it = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == toBeOpt[i]);
+                int index = it - known_tags.begin();
+                
+                if (tagCriteria(known_tags[index].pair_count)) //check pair_count criteria
+                {
+                    //adjust target data in known_tag 
+                    std::map<int, Target>::iterator itr = opt_targets.find(toBeOpt[i]);
+                    ROS_INFO_STREAM("targetID: " << itr->first);/////
+                    Target target = itr->second;
+                    known_tags[index].wTtag_vec = target.world_T_target;
+                    known_tags[index].wTtag = poseVec2Mat(target.world_T_target);
+                    std::cout<<"changing "<<target.targetID<<std::endl; ////
+
+                    toBeOpt[i] = -1;
+                }
+
+                //reset pair_counts for dequeued and remaining tags
+                known_tags[index].pair_count.clear(); 
+                known_tags[index].pair_count = { 0, 0 };
+            }
+
+            toBeOpt.erase(std::remove(toBeOpt.begin(), toBeOpt.end(), -1), toBeOpt.end());
+
+        }
+
+        bool tagCriteria(std::vector<int> pair_count)
+        {
+            bool status = false;
+            //criteria definition
+            if (pair_count[0]>24)
+            {
+                status = true;
+                for (int j = 1; j < pair_count.size(); j++)
+                {
+
+                }
+            }
+            return status;
         }
 
         int detectionType(apriltag_ros::AprilTagDetectionArray::ConstPtr msg)
@@ -180,7 +233,7 @@ class Node
             {
                 if (msg->detections[i].id[0] == known_tags[0].id) //world present?
                 {
-                    known_tags[0].pose_count = 1; ///
+                    // known_tags[0].pose_count = 1; ///
                     world_loc = i;
                     type = WORLD;
                     known_in_frame.push_back(msg->detections[i].id[0]);
@@ -206,6 +259,62 @@ class Node
                 }
             }
             return type;
+        }
+
+        void newTag(apriltag_ros::AprilTagDetectionArray::ConstPtr msg, int loc)
+        {
+            auto itor = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == msg->detections[loc].id[0]);
+            if (itor == known_tags.end()) //unseen tag
+            {
+                tag temp;
+                temp.id = msg->detections[loc].id[0];
+                temp.avg_id = temp.id + 1000;
+                temp.size = msg->detections[loc].size[0];
+                temp.wTtag = wTcam * camTtag(msg, loc,false);
+                temp.pose_sum = temp.wTtag;
+                temp.pose_count = 1;
+                temp.pair_count = { 0, 0 }; 
+                known_tags.push_back(temp);
+                // std::cout<<temp.wTtag<<std::endl;
+                std::cout<<"new tag seen : "<<msg->detections[loc].id[0]<<std::endl;///
+            }
+            else if (itor != known_tags.end()) //seen tag 
+            {
+                int index = itor - known_tags.begin();
+                known_tags[index].pose_sum += wTcam * camTtag(msg, loc,false);
+                known_tags[index].pose_count += 1;
+                // std::cout<<known_tags[index].pose_sum<<std::endl;
+
+                if (known_tags[index].pose_count == 10) //criteria for pose_count to be set based on sample rate
+                {
+                    known_tags[index].avg_id -= 1000;
+                    known_tags[index].wTtag = known_tags[index].pose_sum / known_tags[index].pose_count;
+                    known_tags[index].wTtag_vec = poseMat2Vec(known_tags[index].wTtag);
+                    // std::cout << known_tags[index].wTtag << std::endl;
+
+                    toBeOpt.push_back(known_tags[index].id); //acknowledge beginning of optimization cache
+                    std::cout<<"new tag processed : "<<known_tags[index].id<<std::endl;///    
+                }
+            }
+        }
+
+        void intrinsicLoad()
+        {
+          camMatrix = cv::Mat(3,3,CV_64F,cv::Scalar(0));
+          std::vector<double> intrinsic;
+          if((n.hasParam("/camera_matrix/data"))&&(n.hasParam("/distortion_coefficients/data")))
+          {
+            n.getParam("/camera_matrix/data", intrinsic);
+            memcpy(camMatrix.data,intrinsic.data(),intrinsic.size()*sizeof(double));
+            n.getParam("/distortion_coefficients/data", intrinsic);
+            distCoeffs={intrinsic[0],intrinsic[1],intrinsic[2],intrinsic[3],intrinsic[4]};
+            ROS_INFO("Camera intrinsic parameters loaded");          
+          }
+          else 
+          {
+            ROS_ERROR("Camera intrinsics not loaded to parameter server!");
+            ros::shutdown();
+          }
         }
 
         Eigen::MatrixXd camTtag(apriltag_ros::AprilTagDetectionArray::ConstPtr msg, int loc, bool inverse)
@@ -255,57 +364,40 @@ class Node
           double data[9] = {tempmat(0,0), tempmat(0,1), tempmat(0,2),
                             tempmat(1,0), tempmat(1,1), tempmat(1,2),
                             tempmat(2,0), tempmat(2,1), tempmat(2,2)};
-          cv::Mat camTtag_rvec;
-          camTtag_rvec = cv::Mat(3,3,CV_64F,data);
+          cv::Mat rotmat;
+          rotmat = cv::Mat(3,3,CV_64F,data);
           cv::Mat rodrigues_rvec;
 
-          cv::Rodrigues(camTtag_rvec, rodrigues_rvec); 
+          cv::Rodrigues(rotmat, rodrigues_rvec); 
 
-          std::array<double, 6> w_T_tag;
-          w_T_tag[0] = rodrigues_rvec.at<double>(0,0);
-          w_T_tag[1] = rodrigues_rvec.at<double>(0,1);
-          w_T_tag[2] = rodrigues_rvec.at<double>(0,2);  
+          std::array<double, 6> tempvec;
+          tempvec[0] = rodrigues_rvec.at<double>(0,0);
+          tempvec[1] = rodrigues_rvec.at<double>(0,1);
+          tempvec[2] = rodrigues_rvec.at<double>(0,2);  
 
-          w_T_tag[3] = tempmat(0,3);
-          w_T_tag[4] = tempmat(1,3);
-          w_T_tag[5] = tempmat(2,3);
+          tempvec[3] = tempmat(0,3);
+          tempvec[4] = tempmat(1,3);
+          tempvec[5] = tempmat(2,3);
 
-          return w_T_tag;
+          return tempvec;
         }
 
-        void newTag(apriltag_ros::AprilTagDetectionArray::ConstPtr msg, int loc)
+        Eigen::MatrixXd poseVec2Mat(std::array<double, 6> tempvec)
         {
-            auto itor = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == msg->detections[loc].id[0]);
-            if (itor == known_tags.end()) //unseen tag
-            {
-                tag temp;
-                temp.id = msg->detections[loc].id[0];
-                temp.avg_id = temp.id + 1000;
-                temp.size = msg->detections[loc].size[0];
-                temp.wTtag = wTcam * camTtag(msg, loc,false);
-                temp.pose_sum = temp.wTtag;
-                temp.pose_count = 1;
-                temp.pair_count = { 0, 0 }; 
-                known_tags.push_back(temp);
-                // std::cout<<temp.wTtag<<std::endl;
-            }
-            else if (itor != known_tags.end()) //seen tag 
-            {
-                int index = itor - known_tags.begin();
-                known_tags[index].pose_sum += wTcam * camTtag(msg, loc,false);
-                known_tags[index].pose_count += 1;
-                // std::cout<<known_tags[index].pose_sum<<std::endl;
+            double data[3] = { tempvec[0], tempvec[1], tempvec[2]};
+            cv::Mat rodrigues_rvec;
+            rodrigues_rvec = cv::Mat(1,3,CV_64F,data);
+            cv::Mat rotmat;
 
-                if (known_tags[index].pose_count == 10) //criteria for pose_count to be set based on frame sample publishing rate
-                {
-                    known_tags[index].avg_id -= 1000;
-                    known_tags[index].wTtag = known_tags[index].pose_sum / known_tags[index].pose_count;
-                    known_tags[index].wTtag_vec = poseMat2Vec(known_tags[index].wTtag);
-                    // std::cout << known_tags[index].wTtag << std::endl;
+            cv::Rodrigues(rodrigues_rvec, rotmat);  
 
-                    toBeOpt.push_back(known_tags[index].id); //acknowledge beginning of optimization cache
-                }
-            }
+            Eigen::MatrixXd tempmat(4, 4);
+            tempmat << rotmat.at<double>(0, 0), rotmat.at<double>(0, 1), rotmat.at<double>(0, 2), tempvec[3], 
+                       rotmat.at<double>(1, 0), rotmat.at<double>(1, 1), rotmat.at<double>(1, 2), tempvec[4], 
+                       rotmat.at<double>(2, 0), rotmat.at<double>(2, 1), rotmat.at<double>(2, 2), tempvec[5], 
+                       0, 0, 0, 1;
+
+            return tempmat;
         }
 
         Picture msg2Picture(apriltag_ros::AprilTagDetectionArray::ConstPtr msg)
