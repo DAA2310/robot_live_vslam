@@ -9,12 +9,23 @@ class Node
         ros::Subscriber sub;
         ros::Timer timer;
         apriltag_ros::AprilTagDetectionArray::ConstPtr message;
+        double sample_rate;
         bool wait;
 
         Node()
         {
             pub = n.advertise<apriltag_ros::AprilTagDetectionArray>("sampled_detections",1000);
             sub = n.subscribe("tag_detections", 1000, &Node::sampleCallback,this);
+            if (n.hasParam("/sample_rate"))
+            {
+                n.getParam("/sample_rate",sample_rate);
+            }
+            else 
+            {
+              ROS_ERROR("Sampling rate not loaded to parameter server!");
+              ros::shutdown();
+            }
+            
             wait = false;
         } 
 
@@ -29,7 +40,7 @@ class Node
             
             if (wait == false)
             {
-                timer = n.createTimer(ros::Duration(0.2),&Node::publishMsg, this);
+                timer = n.createTimer(ros::Duration(1 / sample_rate),&Node::publishMsg, this);
                 wait = true; 
             }
         }
