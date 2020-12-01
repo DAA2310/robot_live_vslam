@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   apriltag_ros 
   tf_conversions	
   rviz_simulator
+  message_generation
 )
 
 find_package(Ceres REQUIRED)
@@ -54,11 +55,11 @@ find_package(OpenCV REQUIRED PATHS "~/Documents/OpenCV")
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+ add_message_files(
+   FILES
+   TagMap.msg
+   Tag.msg
+ )
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -75,10 +76,10 @@ find_package(OpenCV REQUIRED PATHS "~/Documents/OpenCV")
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs
-# )
+ generate_messages(
+   DEPENDENCIES
+   std_msgs
+ )
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -112,7 +113,7 @@ find_package(OpenCV REQUIRED PATHS "~/Documents/OpenCV")
 catkin_package(
 # INCLUDE_DIRS include
 # LIBRARIES robot_live_vslam
-  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros tf_conversions rviz_simulator 
+  CATKIN_DEPENDS roscpp rospy std_msgs apriltag_ros tf_conversions rviz_simulator message_runtime 
 #  DEPENDS system_lib 
 )
 
@@ -147,6 +148,7 @@ FIND_PACKAGE(yaml-cpp REQUIRED)
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(frame_sample_node src/frame_sample.cpp)
 add_executable(vslam_node src/vslam.cpp)
+add_executable(vis_node src/visualizer.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -170,6 +172,12 @@ target_link_libraries(vslam_node
    ${CERES_LIBRARIES}
    yaml-cpp
 )
+
+target_link_libraries(vis_node
+   ${catkin_LIBRARIES}
+   ${OpenCV_LIBRARIES}
+)
+
 
 #############
 ## Install ##
