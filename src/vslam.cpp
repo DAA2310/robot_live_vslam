@@ -6,6 +6,10 @@
 #include "ros/package.h"
 #include "iostream"
 #include "rviz_simulator/camera_calibration_optimizer.h"
+#include "robot_live_vslam/Tag.h"
+#include "robot_live_vslam/TagMap.h"
+#include "math.h"
+
 
 using namespace camera_calibration;
 
@@ -17,7 +21,7 @@ class Node
 {
     public:
         ros::NodeHandle n;
-        ros::Subscriber sub;   
+        ros::Subscriber sub; 
         Eigen::MatrixXd wTcam;
         double sample_rate;
         bool first_view;
@@ -27,15 +31,16 @@ class Node
         cv::Vec<double, 5> distCoeffs;
         std::vector<int> toBeOpt;
         std::vector<int> known_in_frame;
-        std::vector<int> opt_in_frame; 
         std::string package_path;
         ros::Publisher pub;
         std::map<int, Target> opt_targets;
+        std::vector<Picture> opt_pictures;
+        std::array<double, CAMERA_INTRINSICS_SIZE> opt_intrinsics;
 
         Node()
         {
             package_path = ros::package::getPath("robot_live_vslam");
-            //pub = n.advertise<>("",1000);
+            pub = n.advertise<robot_live_vslam::TagMap>("targets_map",1000);
             sub = n.subscribe("sampled_detections", 1000, &Node::camViewCallback,this);
             paramLoad();
             //std::cout<< camMatrix << std::endl;
@@ -53,6 +58,7 @@ class Node
                     tag world;
                     world.id = msg->detections[0].id[0];
                     world.averaged = true;
+                    world.optimized= true;
                     world.size = msg->detections[0].size[0];
                     Eigen::MatrixXd wTworld(4,4);
                     wTworld << 1, 0, 0, 0, 
@@ -115,16 +121,17 @@ class Node
                 {
                    // no reference to map any tags or update camera 
                 }
-                
-                if ((known_in_frame.size() > 1) && (opt_in_frame.size() > 0)) //at least 2 known tags, 1 pending optimization
+
+                ////OPTIMIZATION CACHE STORE
+                if (known_in_frame.size() > 1) //at least 2 known tags
                 {
                     cached_pictures.push_back(msg2Picture(msg)); //cache picture
             
-                    for (int i = 0; i < opt_in_frame.size(); i++)
+                    for (int i = 0; i < known_in_frame.size(); i++)
                     {
-                        if (opt_in_frame[i] != known_tags[0].id) //doesn't account for world tag optimization
+                        if (known_in_frame[i] != known_tags[0].id) //doesn't account for world tag optimization
                         {
-                            auto it = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == opt_in_frame[i]);
+                            auto it = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == known_in_frame[i]);
                             int index = it - known_tags.begin();
                             if (known_in_frame.size() > known_tags[index].pair_count.size()) //increases pair_count size based on neighbour tag view
                             {
@@ -135,7 +142,13 @@ class Node
                             }
                             known_tags[index].pair_count[0] += 1; //frames including tag
                             known_tags[index].pair_count[known_in_frame.size() - 1] += 1; //frames with n tags inclusive
-                        }                    
+                            
+                            if (known_tags[index].opt_index.size() < 10) //// can be set depednent on sample rate
+                            {
+                                known_tags[index].opt_index.push_back(cached_pictures.size() - 1);
+                            }
+                        }
+
                     }
                 }
 
@@ -156,18 +169,21 @@ class Node
                     std::cout<<std::endl;
                 }/////
                 
+                /////OPTIMIZATION CRITERIA
                 if (cached_pictures.size() > 99) // check for optimization criteria - dependent on sample rate 
                 {
                     tagOptimize();
-                    pollOptResults(); //check pair count criteria and adjust
+                    pollOptResults(); //check pair count criteria and adjust  
                     cached_pictures.clear(); //reset cache
+                    toBeOpt.clear();   
                 }
             }
 
             known_in_frame.clear();
-            opt_in_frame.clear();
 
             //publish data
+            publishMap(); 
+
         }
 
         void tagOptimize()
@@ -176,6 +192,8 @@ class Node
             camera_calibration::CameraCalibrationOptimizer tag_optimizer(package_path + "/config", 1);
             tag_optimizer.optimize();
             opt_targets = tag_optimizer.loadTargetMap();
+            opt_pictures = tag_optimizer.loadOptPictures();
+            opt_intrinsics = tag_optimizer.loadOptIntrinsics();
             tag_optimizer.printResultsToConsole(); ////
         }
 
@@ -185,26 +203,74 @@ class Node
             {
                 auto it = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == toBeOpt[i]);
                 int index = it - known_tags.begin();
+                double error = tagOptError(index);
+                std::cout << "Tag error: "<< error << std::endl;
                 
-                if (tagCriteria(known_tags[index].pair_count)) //check pair_count criteria
+                if ((known_tags[index].optimized == false)||(error < known_tags[index].opt_error)) // check optimization cycle error 
                 {
                     //adjust target data in known_tag 
                     std::map<int, Target>::iterator itr = opt_targets.find(toBeOpt[i]);
                     Target target = itr->second;
+                    known_tags[index].optimized = true;
+                    known_tags[index].opt_error = error;
                     known_tags[index].wTtag_vec = target.world_T_target;
                     known_tags[index].wTtag = poseVec2Mat(target.world_T_target);
-                    std::cout<<"Saving tag "<<target.targetID<<std::endl; ////
+                    std::cout<<"Updating tag "<<target.targetID<<std::endl; ////
 
-                    toBeOpt[i] = -1;
                 }
 
-                //reset pair_counts for dequeued and remaining tags
+                //reset pair_counts for tags
                 known_tags[index].pair_count.clear(); 
                 known_tags[index].pair_count = { 0, 0 };
+                known_tags[index].opt_index.clear();
             }
 
-            toBeOpt.erase(std::remove(toBeOpt.begin(), toBeOpt.end(), -1), toBeOpt.end());
+        }
 
+        double tagOptError(int index)
+        {
+            std::map<int, Target>::iterator itr = opt_targets.find(known_tags[index].id);
+            Target target = itr->second;
+
+            double error(0);
+            for (int i = 0; i < known_tags[index].opt_index.size(); i++)
+            {
+                Picture raw_pic = cached_pictures[known_tags[index].opt_index[i]];
+                Picture opt_pic = opt_pictures[known_tags[index].opt_index[i]];
+                
+                auto it = std::find_if( raw_pic.detections.begin(), raw_pic.detections.end(), boost::bind(&Detection::targetID,_1) == known_tags[index].id );
+                int loc = it - raw_pic.detections.begin();
+                std::array<std::array<double, 2>, 4> raw_corners = raw_pic.detections[loc].corners;
+                std::array<std::array<double, 2>, 4> opt_corners;
+                for (int i = 0; i < target.obj_points_in_target.size(); i++)
+                {
+                    std::array<double, 2> opt_corner;
+                    calculatePixelCoords(opt_intrinsics.data(), opt_pic.camera_T_world.data(), target.world_T_target.data(),
+                           target.obj_points_in_target[i].data(), opt_corner.data());
+                    opt_corners[i] = opt_corner;
+                }
+
+                double frame_error = detectionError(raw_corners, opt_corners);
+                error += frame_error;
+                std::cout << "Frame " << i << " error:" << frame_error << std::endl;
+            }
+            return (error / known_tags[index].opt_index.size());
+        }
+
+        double detectionError(std::array<std::array<double, 2>, 4> raw_corners, std::array<std::array<double, 2>, 4> opt_corners)
+        {   
+            double error(0);
+            for (int i = 0; i < 4; i++ )
+            {
+                std::array<double, 2> raw_corner = raw_corners[i];
+                double x1(raw_corner[0]), y1(raw_corner[1]);
+                std::array<double, 2> opt_corner = opt_corners[i];
+                double x2(opt_corner[0]), y2(opt_corner[1]);
+                std::cout << "(" << x1 << ","<< y1 << ") ("<< x2 << "," << y2 <<")"<<std::endl;
+                error += sqrt( (x2 - x1)*(x2 - x1) + (y2 - y1)*(y2 - y1) );
+                std::cout << "Corner " << i << ": " << sqrt( pow(x2 - x1,2) + pow(y2 - y1,2) ) << std::endl;
+            }
+            return (error / 4);
         }
 
         bool tagCriteria(std::vector<int> pair_count)
@@ -220,6 +286,46 @@ class Node
                 }
             }
             return status;
+        }
+        
+        robot_live_vslam::Tag loadTagMsg(int loc)
+        {
+            robot_live_vslam::Tag temp;
+            temp.id = known_tags[loc].id;
+            temp.size = known_tags[loc].size;
+            temp.avg = known_tags[loc].averaged;
+            temp.opt = known_tags[loc].optimized;
+            for (int i = 0; i < 6; i++)
+            {
+                temp.wTtag[i] = known_tags[loc].wTtag_vec[i];
+            }
+
+            return temp;
+        }
+
+        void publishMap()
+        {
+            robot_live_vslam::TagMap message;
+            if (first_view == false)
+            {
+                std::array<double, 6> w_T_cam = poseMat2Vec(wTcam);
+                message.cam_rot[0] = w_T_cam[0];
+                message.cam_rot[1] = w_T_cam[1];
+                message.cam_rot[2] = w_T_cam[2];
+                message.cam_trans[0] = w_T_cam[3];
+                message.cam_trans[1] = w_T_cam[4];
+                message.cam_trans[2] = w_T_cam[5];
+            }
+
+            if(!known_tags.empty())
+            {
+                for (int i = 0; i < known_tags.size(); i++)
+                {
+                    message.tags.push_back(loadTagMsg(i));
+                }
+            }
+
+            pub.publish(message);
         }
 
         int detectionType(apriltag_ros::AprilTagDetectionArray::ConstPtr msg)
@@ -240,17 +346,18 @@ class Node
                     auto it = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == msg->detections[i].id[0]);
                     if ((it != known_tags.end())&&((known_tags[it - known_tags.begin()].averaged == true))) //known tag present?
                     {
-                        known_tag_loc = i;
                         if (type != WORLD)
                         {
                             type = KNOWN;
                         }
+                        known_tag_loc = i;
                         known_in_frame.push_back(msg->detections[i].id[0]);
-                    }
-                    auto itor = std::find( toBeOpt.begin(), toBeOpt.end(), msg->detections[i].id[0]); //is tag pending optimization?
-                    if (itor != toBeOpt.end())
-                    {
-                        opt_in_frame.push_back(msg->detections[i].id[0]);
+                        
+                        auto itor = std::find( toBeOpt.begin(), toBeOpt.end(), msg->detections[i].id[0]); //is tag pending optimization?
+                        if (itor == toBeOpt.end())
+                        {
+                            toBeOpt.push_back(msg->detections[i].id[0]);
+                        }
                     }
                 }
             }
@@ -265,14 +372,16 @@ class Node
                 tag temp;
                 temp.id = msg->detections[loc].id[0];
                 temp.averaged = false;
+                temp.optimized = false;
                 temp.size = msg->detections[loc].size[0];
                 temp.wTtag = wTcam * camTtag(msg, loc,false);
+                temp.wTtag_vec = poseMat2Vec(temp.wTtag);
                 temp.pose_sum = temp.wTtag;
                 temp.pose_count = 1;
                 temp.pair_count = { 0, 0 }; 
                 known_tags.push_back(temp);
                 // std::cout<<temp.wTtag<<std::endl;
-                std::cout<<"new tag seen : "<<msg->detections[loc].id[0]<<std::endl;///
+                std::cout<<"New tag seen : "<<msg->detections[loc].id[0]<<std::endl;///
             }
             else if (itor != known_tags.end()) //seen tag 
             {
@@ -288,8 +397,7 @@ class Node
                     known_tags[index].wTtag_vec = poseMat2Vec(known_tags[index].wTtag);
                     // std::cout << known_tags[index].wTtag << std::endl;
 
-                    toBeOpt.push_back(known_tags[index].id); //acknowledge beginning of optimization cache
-                    std::cout<<"new tag processed : "<<known_tags[index].id<<std::endl;///    
+                    std::cout<<"New tag processed : "<<known_tags[index].id<<std::endl;///    
                 }
             }
         }

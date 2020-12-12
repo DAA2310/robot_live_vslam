@@ -29,6 +29,7 @@ class Node
 
         void visCallback(const robot_live_vslam::TagMap::ConstPtr& msg)
         {
+			message = msg;
 	        visualization_msgs::MarkerArray tags;
 	        visualization_msgs::Marker cam;
 
