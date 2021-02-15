@@ -51,8 +51,17 @@ class Node
 
         void camViewCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr& msg)
         {
+            std::cout<<"--- --- --- --- --- --- ---"<<std::endl;
+
             if (!msg->detections.empty())
             {
+                std::cout<<"TAGS OBSERVED: ";
+                for(int i=0; i<msg->detections.size();i++)////
+                {/////
+                    std::cout<< msg->detections[i].id[0] << " ";////
+                }/////
+                std::cout<<std::endl;
+
                 if (first_view == true)
                 {
                     tag world;
@@ -119,7 +128,8 @@ class Node
                 }
                 else
                 {
-                   // no reference to map any tags or update camera 
+                   // no reference to map any tags or update camera
+                   std::cout<<"No known/referenced tags observed! Unable to update camera position."<<std::endl;
                 }
 
                 ////OPTIMIZATION CACHE STORE
@@ -153,18 +163,19 @@ class Node
                 }
 
                 std::cout<<"Optimizer cache: "<< cached_pictures.size() << std::endl;////
+                std::cout<<"Tag view counts (total  2-inclusive  3-inclusive ...) " << std::endl;////
                 if (known_tags.size()>1)
                 {
                     for(int j=1; j<known_tags.size();j++){
-                        std::cout<<"tag "<<known_tags[j].id<<": ";
+                        std::cout<<"    -tag "<<known_tags[j].id<<": ";
                         for (int i=0; i<known_tags[j].pair_count.size();i++){
                             std::cout<< known_tags[j].pair_count[i] << " ";
                         }
                         std::cout<<std::endl;
                     }
-                    std::cout<< "TO BE OPT"<<std::endl;
+                    std::cout<< "Tags optimization queue: ";
                     for (int k = 0;k<toBeOpt.size();k++){
-                        std::cout<<" "<<toBeOpt[k];
+                        std::cout<<toBeOpt[k]<< " ";
                     }
                     std::cout<<std::endl;
                 }/////
@@ -178,6 +189,11 @@ class Node
                     toBeOpt.clear();   
                 }
             }
+            else
+            {
+                std::cout<<"No tags observed!"<<std::endl;
+            }
+            
 
             known_in_frame.clear();
 
@@ -381,7 +397,7 @@ class Node
                 temp.pair_count = { 0, 0 }; 
                 known_tags.push_back(temp);
                 // std::cout<<temp.wTtag<<std::endl;
-                std::cout<<"New tag seen : "<<msg->detections[loc].id[0]<<std::endl;///
+                std::cout<<"New tag loaded : "<<msg->detections[loc].id[0]<<std::endl;///
             }
             else if (itor != known_tags.end()) //seen tag 
             {

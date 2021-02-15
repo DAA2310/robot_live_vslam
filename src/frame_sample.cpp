@@ -32,11 +32,15 @@ class Node
         void sampleCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr& msg)
         {
             message = msg;
-            ROS_INFO("I heard %f", msg->translation[0]); /////
-            for(int i=0; i<msg->detections.size();i++)////
-            {/////
-                ROS_INFO("  %i",msg->detections[i].id[0]);////
-            }/////
+            ROS_INFO("Received message!"); //wTcam translation x-coordinate: %f", msg->translation[0]); /////
+            if(!msg->detections.empty())
+            {
+                ROS_INFO("Observed tags:"); /////
+                for(int i=0; i<msg->detections.size();i++)////
+                {/////
+                    ROS_INFO("  -%i",msg->detections[i].id[0]);////
+                }/////
+            }
             
             if (wait == false)
             {
@@ -48,7 +52,7 @@ class Node
         void publishMsg(const ros::TimerEvent &)
         {
             pub.publish(message);
-            ROS_INFO("spoke %f", message->translation[0]); /////
+            ROS_INFO("PUBLISHED message!"); // wTcam translation x-coordinate: %f", message->translation[0]); /////
             wait == false;
         }
         

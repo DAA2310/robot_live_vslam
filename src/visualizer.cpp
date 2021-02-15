@@ -4,6 +4,7 @@
 #include "visualization_msgs/MarkerArray.h"
 #include "geometry_msgs/Pose.h"
 #include "geometry_msgs/PoseArray.h"
+#include "geometry_msgs/PoseStamped.h"
 #include "robot_live_vslam/Tag.h"
 #include "robot_live_vslam/TagMap.h"
 #include "opencv2/opencv.hpp"
@@ -16,14 +17,21 @@ class Node
         ros::NodeHandle n;
         ros::Publisher cam_pub;
         ros::Publisher tag_pub; 
+        ros::Publisher tagpose_pub; 
+        ros::Publisher campose_pub; 
+        ros::Publisher traj_pub; 
         ros::Subscriber sub;
         robot_live_vslam::TagMap::ConstPtr message;
+		std::deque<geometry_msgs::Pose> traj_hist;
 
         Node()
         {
             cam_pub = n.advertise<visualization_msgs::Marker>("cam_marker",1000);
             tag_pub = n.advertise<visualization_msgs::MarkerArray>("tag_markers",1000);
-            sub = n.subscribe("targets_map", 1000, &Node::visCallback,this);
+			tagpose_pub = n.advertise<geometry_msgs::PoseArray>("tag_poses", 1000);
+			campose_pub = n.advertise<geometry_msgs::PoseStamped>("cam_pose", 1000);
+            traj_pub = n.advertise<visualization_msgs::Marker>("traj_marker",1000);
+			sub = n.subscribe("targets_map", 1000, &Node::visCallback,this);
 
         }
 
@@ -32,26 +40,50 @@ class Node
 			message = msg;
 	        visualization_msgs::MarkerArray tags;
 	        visualization_msgs::Marker cam;
+			geometry_msgs::PoseArray tagpose;
+			geometry_msgs::PoseStamped campose;
+	        visualization_msgs::Marker traj;
+
+			tagpose.header.frame_id = "world";
+			campose.header.frame_id = "world";
 
             if (!msg->tags.empty())
             {
                 cam = loadCamMarker();
-		
+				campose.pose = loadCamPose();
+				if(traj_hist.size() < 21)
+				{	
+					traj_hist.push_back(campose.pose);
+				}
+				else 
+				{
+					traj_hist.pop_front();
+					traj_hist.push_back(campose.pose);
+				}
+				traj = loadTrajMarker();
+
                 for (int i = 0; i < msg->tags.size(); i++)
                 {
 	                visualization_msgs::Marker tag;
                     tag = loadTagMarker(i);
                     tags.markers.push_back(tag);
+
+					geometry_msgs::Pose pose;
+					pose = loadMarkerPose(i);
+					tagpose.poses.push_back(pose);
                 }
             }
 
             tag_pub.publish(tags);
             cam_pub.publish(cam);
+			tagpose_pub.publish(tagpose);
+			campose_pub.publish(campose);
+			traj_pub.publish(traj);
 
         }
 
         Eigen::Quaterniond rodrigToQuat(double tempvec[3])
-        {
+        {       
         	cv::Mat rodrigues=cv::Mat(1,3,CV_64F,tempvec);
         	cv::Mat tempmat;
         	cv::Rodrigues(rodrigues,tempmat);
@@ -116,9 +148,26 @@ class Node
         	marker.scale.y = message->tags[loc].size;////
         	marker.scale.z = 0.0005;////
         	marker.color.a = 1.0;////
-        	marker.color.r = 1;////
-        	marker.color.g = 1;////
-        	marker.color.b = 1;////
+
+			if (message->tags[loc].opt == true)
+			{
+				marker.color.r = 0.6;////
+        		marker.color.g = 1.0;////
+        		marker.color.b = 0.73;////
+			}
+        	else if (message->tags[loc].avg == true)
+			{
+				marker.color.r = 1.0;////
+        		marker.color.g = 1.0;////
+        		marker.color.b = 0.7;////
+			}
+			else
+			{
+				marker.color.r = 1.0;////
+        		marker.color.g = 1.0;////
+        		marker.color.b = 1.0;////
+			}
+
         	marker.lifetime = ros::Duration();////
 
             return marker;
@@ -146,6 +195,39 @@ class Node
 
             return marker; 
         }
+
+		visualization_msgs::Marker loadTrajMarker()
+		{
+			visualization_msgs::Marker marker;
+
+			marker.header.frame_id = "world"; 
+			marker.header.stamp = ros::Time();
+			marker.ns = "cam_trajectory";
+			marker.id = -2;
+			marker.type = visualization_msgs::Marker::LINE_STRIP;
+			marker.action = visualization_msgs::Marker::ADD;
+			marker.pose.position.x = 0.0;
+    		marker.pose.position.y = 0.0;
+    		marker.pose.position.z = 0.0;
+    		marker.pose.orientation.x = 0.0;
+    		marker.pose.orientation.y = 0.0;
+    		marker.pose.orientation.z = 0.0;
+    		marker.pose.orientation.w = 1.0;
+			marker.scale.x = 0.002;
+			marker.color.a = 1.0;
+			marker.color.r = 1.0;
+			marker.color.g = 1.0;
+			marker.color.b = 0.0;
+			marker.lifetime = ros::Duration();
+
+			marker.points.clear();
+			for (int i = 0; i != traj_hist.size(); i++)
+			{
+				marker.points.push_back(traj_hist[i].position);
+			}
+			
+			return marker;
+		}
 
 };
 
