@@ -21,6 +21,7 @@ class Node
         ros::Publisher campose_pub; 
         ros::Publisher traj_pub; 
         ros::Subscriber sub;
+		double sample_rate;
         robot_live_vslam::TagMap::ConstPtr message;
 		std::deque<geometry_msgs::Pose> traj_hist;
 
@@ -32,7 +33,15 @@ class Node
 			campose_pub = n.advertise<geometry_msgs::PoseStamped>("cam_pose", 1000);
             traj_pub = n.advertise<visualization_msgs::Marker>("traj_marker",1000);
 			sub = n.subscribe("targets_map", 1000, &Node::visCallback,this);
-
+			if (n.hasParam("/sample_rate"))
+            {
+                n.getParam("/sample_rate",sample_rate);
+            }
+            else 
+            {
+              ROS_ERROR("Sampling rate not loaded to parameter server!");
+              ros::shutdown();
+            }
         }
 
         void visCallback(const robot_live_vslam::TagMap::ConstPtr& msg)
@@ -51,7 +60,7 @@ class Node
             {
                 cam = loadCamMarker();
 				campose.pose = loadCamPose();
-				if(traj_hist.size() < 21)
+				if(traj_hist.size() < ((sample_rate * 5) + 1)) //5 second trajectory 
 				{	
 					traj_hist.push_back(campose.pose);
 				}

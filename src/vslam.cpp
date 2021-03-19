@@ -23,7 +23,10 @@ class Node
         ros::NodeHandle n;
         ros::Subscriber sub; 
         Eigen::MatrixXd wTcam;
-        double sample_rate;
+        double sample_rate; //sampling rate to VSLAM node
+        double opt_size; //keyframe cache size before optimization
+        double avg_size; //number of frames to be used in new tag's pose average 
+        double reproj_size; //number of frames stored for each tag to determine average error
         bool first_view;
         int world_loc;
         int known_tag_loc; 
@@ -153,7 +156,7 @@ class Node
                             known_tags[index].pair_count[0] += 1; //frames including tag
                             known_tags[index].pair_count[known_in_frame.size() - 1] += 1; //frames with n tags inclusive
                             
-                            if (known_tags[index].opt_index.size() < 10) //// can be set depednent on sample rate
+                            if (known_tags[index].opt_index.size() < reproj_size) //// can be set depednent on sample rate
                             {
                                 known_tags[index].opt_index.push_back(cached_pictures.size() - 1);
                             }
@@ -181,7 +184,7 @@ class Node
                 }/////
                 
                 /////OPTIMIZATION CRITERIA
-                if (cached_pictures.size() > 99) // check for optimization criteria - dependent on sample rate 
+                if (cached_pictures.size() > (opt_size - 1)) // check for optimization criteria - dependent on sample rate 
                 {
                     tagOptimize();
                     pollOptResults(); //check pair count criteria and adjust  
@@ -191,7 +194,7 @@ class Node
             }
             else
             {
-                std::cout<<"No tags observed!"<<std::endl;
+                //std::cout<<"No tags observed!"<<std::endl;
             }
             
 
@@ -211,6 +214,7 @@ class Node
             opt_pictures = tag_optimizer.loadOptPictures();
             opt_intrinsics = tag_optimizer.loadOptIntrinsics();
             tag_optimizer.printResultsToConsole(); ////
+
         }
 
         void pollOptResults()
@@ -220,18 +224,19 @@ class Node
                 auto it = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == toBeOpt[i]);
                 int index = it - known_tags.begin();
                 double error = tagOptError(index);
-                std::cout << "Tag error: "<< error << std::endl;
+                std::cout << "Tag " << toBeOpt[i] <<" error: "<< error << std::endl;
                 
                 if ((known_tags[index].optimized == false)||(error < known_tags[index].opt_error)) // check optimization cycle error 
                 {
                     //adjust target data in known_tag 
                     std::map<int, Target>::iterator itr = opt_targets.find(toBeOpt[i]);
                     Target target = itr->second;
+                    std::cout<<"Updating tag "<< target.targetID << ": " << known_tags[index].opt_error << " --> " << error << std::endl; ////
+
                     known_tags[index].optimized = true;
                     known_tags[index].opt_error = error;
                     known_tags[index].wTtag_vec = target.world_T_target;
                     known_tags[index].wTtag = poseVec2Mat(target.world_T_target);
-                    std::cout<<"Updating tag "<<target.targetID<<std::endl; ////
 
                 }
 
@@ -268,7 +273,7 @@ class Node
 
                 double frame_error = detectionError(raw_corners, opt_corners);
                 error += frame_error;
-                std::cout << "Frame " << i << " error:" << frame_error << std::endl;
+                //std::cout << "Frame " << i << " error:" << frame_error << std::endl;
             }
             return (error / known_tags[index].opt_index.size());
         }
@@ -282,9 +287,9 @@ class Node
                 double x1(raw_corner[0]), y1(raw_corner[1]);
                 std::array<double, 2> opt_corner = opt_corners[i];
                 double x2(opt_corner[0]), y2(opt_corner[1]);
-                std::cout << "(" << x1 << ","<< y1 << ") ("<< x2 << "," << y2 <<")"<<std::endl;
+                //std::cout << "(" << x1 << ","<< y1 << ") ("<< x2 << "," << y2 <<")"<<std::endl;
                 error += sqrt( (x2 - x1)*(x2 - x1) + (y2 - y1)*(y2 - y1) );
-                std::cout << "Corner " << i << ": " << sqrt( pow(x2 - x1,2) + pow(y2 - y1,2) ) << std::endl;
+                //std::cout << "Corner " << i << ": " << sqrt( pow(x2 - x1,2) + pow(y2 - y1,2) ) << std::endl;
             }
             return (error / 4);
         }
@@ -406,7 +411,7 @@ class Node
                 known_tags[index].pose_count += 1;
                 // std::cout<<known_tags[index].pose_sum<<std::endl;
 
-                if (known_tags[index].pose_count == 10) //criteria for pose_count to be set based on sample rate
+                if (known_tags[index].pose_count == avg_size) //criteria for pose_count to be set based on sample rate
                 {
                     known_tags[index].averaged = true;
                     known_tags[index].wTtag = known_tags[index].pose_sum / known_tags[index].pose_count;
@@ -429,7 +434,10 @@ class Node
             n.getParam("/distortion_coefficients/data", intrinsic);
             distCoeffs={intrinsic[0],intrinsic[1],intrinsic[2],intrinsic[3],intrinsic[4]};
             n.getParam("/sample_rate", sample_rate);  
-            ROS_INFO("Camera intrinsic parameters and sampling rate loaded"); 
+            n.getParam("/opt_size", opt_size);  
+            n.getParam("/avg_size", avg_size);  
+            n.getParam("/reproj_size", reproj_size);  
+            ROS_INFO("Configuration variables and camera intrinsic parameters loaded"); 
           }
           else 
           {

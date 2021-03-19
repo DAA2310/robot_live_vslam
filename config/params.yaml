@@ -1,1 +1,5 @@
-sample_rate: 5
+sample_rate: 5 #sampling rate to VSLAM node
+opt_size: 150 #keyframe cache size before optimization
+avg_size: 10 #number of frames to be used in new tag's pose average 
+reproj_size: 10 #number of frames stored for each tag to determine average error
+
