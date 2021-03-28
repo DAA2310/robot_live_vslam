@@ -33,6 +33,8 @@ class Node
 			campose_pub = n.advertise<geometry_msgs::PoseStamped>("cam_pose", 1000);
             traj_pub = n.advertise<visualization_msgs::Marker>("traj_marker",1000);
 			sub = n.subscribe("targets_map", 1000, &Node::visCallback,this);
+
+			//load system parameters
 			if (n.hasParam("/sample_rate"))
             {
                 n.getParam("/sample_rate",sample_rate);
@@ -58,8 +60,10 @@ class Node
 
             if (!msg->tags.empty())
             {
+				//camera marker and pose generation 
                 cam = loadCamMarker();
 				campose.pose = loadCamPose();
+				
 				if(traj_hist.size() < ((sample_rate * 5) + 1)) //5 second trajectory 
 				{	
 					traj_hist.push_back(campose.pose);
@@ -71,7 +75,7 @@ class Node
 				}
 				traj = loadTrajMarker();
 
-                for (int i = 0; i < msg->tags.size(); i++)
+                for (int i = 0; i < msg->tags.size(); i++) //marker and pose generation
                 {
 	                visualization_msgs::Marker tag;
                     tag = loadTagMarker(i);
@@ -158,7 +162,8 @@ class Node
         	marker.scale.z = 0.0005;////
         	marker.color.a = 1.0;////
 
-			if (message->tags[loc].opt == true)
+			//colour selection based on tag status 
+			if (message->tags[loc].opt == true) 
 			{
 				marker.color.r = 0.6;////
         		marker.color.g = 1.0;////

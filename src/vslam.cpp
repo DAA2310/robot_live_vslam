@@ -58,13 +58,14 @@ class Node
 
             if (!msg->detections.empty())
             {
-                std::cout<<"TAGS OBSERVED: ";
-                for(int i=0; i<msg->detections.size();i++)////
-                {/////
-                    std::cout<< msg->detections[i].id[0] << " ";////
-                }/////
+                std::cout<<"TAGS OBSERVED: "; //debugging output  for tags observed per frame
+                for(int i=0; i<msg->detections.size();i++)
+                {
+                    std::cout<< msg->detections[i].id[0] << " ";
+                }
                 std::cout<<std::endl;
 
+                //WORLD TAG DESIGNATION
                 if (first_view == true)
                 {
                     tag world;
@@ -84,17 +85,9 @@ class Node
                     ROS_INFO("World tag set with tag ID %i",world.id);
                 }
 
-                int detection = detectionType(msg);
-                // ROS_INFO("Detection type %i", detection); /////
-
-                // if (!known_tags.empty())////
-                // {
-                //     for (int i = 0; i != known_tags.size(); i++)/////
-                //     std::cout<<" "<<known_tags[i].id<<"("<<known_tags[i].pose_count<<")("<<known_tags[i].averaged<<") ";/////
-                //     std::cout<<"\n";/////
-                // }
-                // known_tags[0].pose_count= 0; ///
+                int detection = detectionType(msg); //frame interpretation
                 
+                //FRAME CONDITION MAPPING
                 if (detection == WORLD)
                 {
                     wTcam =  camTtag(msg, world_loc, true);
@@ -135,7 +128,7 @@ class Node
                    std::cout<<"No known/referenced tags observed! Unable to update camera position."<<std::endl;
                 }
 
-                ////OPTIMIZATION CACHE STORE
+                ////OPTIMIZATION KEYFRAME STORE
                 if (known_in_frame.size() > 1) //at least 2 known tags
                 {
                     cached_pictures.push_back(msg2Picture(msg)); //cache picture
@@ -156,7 +149,7 @@ class Node
                             known_tags[index].pair_count[0] += 1; //frames including tag
                             known_tags[index].pair_count[known_in_frame.size() - 1] += 1; //frames with n tags inclusive
                             
-                            if (known_tags[index].opt_index.size() < reproj_size) //// can be set depednent on sample rate
+                            if (known_tags[index].opt_index.size() < reproj_size) 
                             {
                                 known_tags[index].opt_index.push_back(cached_pictures.size() - 1);
                             }
@@ -164,9 +157,9 @@ class Node
 
                     }
                 }
-
-                std::cout<<"Optimizer cache: "<< cached_pictures.size() << std::endl;////
-                std::cout<<"Tag view counts (total  2-inclusive  3-inclusive ...) " << std::endl;////
+                //Debugging output for optimizer
+                std::cout<<"Optimizer cache: "<< cached_pictures.size() << std::endl;
+                std::cout<<"Tag view counts (total  2-inclusive  3-inclusive ...) " << std::endl;
                 if (known_tags.size()>1)
                 {
                     for(int j=1; j<known_tags.size();j++){
@@ -181,31 +174,30 @@ class Node
                         std::cout<<toBeOpt[k]<< " ";
                     }
                     std::cout<<std::endl;
-                }/////
+                }
                 
-                /////OPTIMIZATION CRITERIA
-                if (cached_pictures.size() > (opt_size - 1)) // check for optimization criteria - dependent on sample rate 
+                //OPTIMIZATION CRITERIA
+                if (cached_pictures.size() > (opt_size - 1)) // check for optimization criteria 
                 {
                     tagOptimize();
-                    pollOptResults(); //check pair count criteria and adjust  
+                    pollOptResults(); //query results for pose updating
                     cached_pictures.clear(); //reset cache
                     toBeOpt.clear();   
                 }
             }
             else
             {
-                //std::cout<<"No tags observed!"<<std::endl;
+                std::cout<<"No tags observed!"<<std::endl;
             }
             
-
             known_in_frame.clear();
 
-            //publish data
+            //publish mapped data
             publishMap(); 
 
         }
 
-        void tagOptimize()
+        void tagOptimize() //Optimizer procedure
         {
             //initialize and run optimization
             camera_calibration::CameraCalibrationOptimizer tag_optimizer(package_path + "/config", 1);
@@ -213,11 +205,11 @@ class Node
             opt_targets = tag_optimizer.loadTargetMap();
             opt_pictures = tag_optimizer.loadOptPictures();
             opt_intrinsics = tag_optimizer.loadOptIntrinsics();
-            tag_optimizer.printResultsToConsole(); ////
+            tag_optimizer.printResultsToConsole(); //print summary
 
         }
 
-        void pollOptResults()
+        void pollOptResults() //query and update tag poses 
         {
             for (int i = 0; i < toBeOpt.size(); i++)
             {
@@ -248,7 +240,7 @@ class Node
 
         }
 
-        double tagOptError(int index)
+        double tagOptError(int index) //calculate reprojection error for given tag
         {
             std::map<int, Target>::iterator itr = opt_targets.find(known_tags[index].id);
             Target target = itr->second;
@@ -294,37 +286,10 @@ class Node
             return (error / 4);
         }
 
-        bool tagCriteria(std::vector<int> pair_count)
-        {
-            bool status = false;
-            //criteria definition
-            if (pair_count[0]>24)
-            {
-                status = true;
-                for (int j = 1; j < pair_count.size(); j++)
-                {
+        bool tagCriteria(std::vector<int> pair_count) //tag criteria for updating per cycle 
+        {} //TBD
 
-                }
-            }
-            return status;
-        }
-        
-        robot_live_vslam::Tag loadTagMsg(int loc)
-        {
-            robot_live_vslam::Tag temp;
-            temp.id = known_tags[loc].id;
-            temp.size = known_tags[loc].size;
-            temp.avg = known_tags[loc].averaged;
-            temp.opt = known_tags[loc].optimized;
-            for (int i = 0; i < 6; i++)
-            {
-                temp.wTtag[i] = known_tags[loc].wTtag_vec[i];
-            }
-
-            return temp;
-        }
-
-        void publishMap()
+        void publishMap() // publishes TagMap for visualizer
         {
             robot_live_vslam::TagMap message;
             if (first_view == false)
@@ -349,7 +314,7 @@ class Node
             pub.publish(message);
         }
 
-        int detectionType(apriltag_ros::AprilTagDetectionArray::ConstPtr msg)
+        int detectionType(apriltag_ros::AprilTagDetectionArray::ConstPtr msg) //determines type of frame 
         {
             int type = UNKNOWN;
             for (int i = 0; i != msg->detections.size(); i++)
@@ -372,8 +337,9 @@ class Node
                             type = KNOWN;
                         }
                         known_tag_loc = i;
-                        known_in_frame.push_back(msg->detections[i].id[0]);
+                        known_in_frame.push_back(msg->detections[i].id[0]); //lists tags in view 
                         
+                        //updates list of observed tags 
                         auto itor = std::find( toBeOpt.begin(), toBeOpt.end(), msg->detections[i].id[0]); //is tag pending optimization?
                         if (itor == toBeOpt.end())
                         {
@@ -385,7 +351,7 @@ class Node
             return type;
         }
 
-        void newTag(apriltag_ros::AprilTagDetectionArray::ConstPtr msg, int loc)
+        void newTag(apriltag_ros::AprilTagDetectionArray::ConstPtr msg, int loc) //tag creation and pose averaging 
         {
             auto itor = std::find_if( known_tags.begin(), known_tags.end(), boost::bind(&tag::id,_1) == msg->detections[loc].id[0]);
             if (itor == known_tags.end()) //unseen tag
@@ -411,7 +377,7 @@ class Node
                 known_tags[index].pose_count += 1;
                 // std::cout<<known_tags[index].pose_sum<<std::endl;
 
-                if (known_tags[index].pose_count == avg_size) //criteria for pose_count to be set based on sample rate
+                if (known_tags[index].pose_count == avg_size) //criteria for pose_count to be set based on file parameter
                 {
                     known_tags[index].averaged = true;
                     known_tags[index].wTtag = known_tags[index].pose_sum / known_tags[index].pose_count;
@@ -423,7 +389,7 @@ class Node
             }
         }
 
-        void paramLoad()
+        void paramLoad() //load system parameters 
         {
           camMatrix = cv::Mat(3,3,CV_64F,cv::Scalar(0));
           std::vector<double> intrinsic;
@@ -446,6 +412,7 @@ class Node
           }
         }
 
+        //primary pose determination using solvePNP
         Eigen::MatrixXd camTtag(apriltag_ros::AprilTagDetectionArray::ConstPtr msg, int loc, bool inverse)
         {
             Eigen::MatrixXd cam_T_tag(4, 4);
@@ -486,6 +453,22 @@ class Node
                 return cam_T_tag.inverse().eval();
             }
             return cam_T_tag;
+        }
+
+        //HELPER FUNCTIONS
+        robot_live_vslam::Tag loadTagMsg(int loc)
+        {
+            robot_live_vslam::Tag temp;
+            temp.id = known_tags[loc].id;
+            temp.size = known_tags[loc].size;
+            temp.avg = known_tags[loc].averaged;
+            temp.opt = known_tags[loc].optimized;
+            for (int i = 0; i < 6; i++)
+            {
+                temp.wTtag[i] = known_tags[loc].wTtag_vec[i];
+            }
+
+            return temp;
         }
 
         std::array<double, 6> poseMat2Vec(Eigen::MatrixXd tempmat)
